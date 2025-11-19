@@ -447,6 +447,286 @@ export async function getMotivation(userId: string, options?: { provider?: AIPro
   });
 }
 
+/**
+ * Task recommendation interface
+ */
+export interface TaskRecommendation {
+  taskId: string;
+  taskTitle: string;
+  currentDueDate?: Date | null;
+  suggestedDueDate?: Date | null;
+  currentPriority: string;
+  suggestedPriority?: string;
+  reason: string;
+}
+
+/**
+ * Workload optimization result
+ */
+export interface WorkloadOptimizationResult {
+  analysis: string;
+  recommendations: TaskRecommendation[];
+  summary: string;
+}
+
+/**
+ * Optimize workload distribution
+ * High Impact: Analyzes current workload and suggests optimal task distribution
+ */
+export async function optimizeWorkload(userId: string, options?: { provider?: AIProvider; days?: number; maxTasks?: number }): Promise<WorkloadOptimizationResult> {
+  const days = options?.days || 7; // Default to 7 days
+  const maxTasks = options?.maxTasks || 15; // Limit to 15 tasks max to prevent timeout
+  
+  // Get user tasks for context
+  const tasks = await retrieveUserTasks(userId);
+  let pendingTasks = tasks.filter(t => t.status === TaskStatus.PENDING || t.status === TaskStatus.IN_PROGRESS);
+  
+  // Sort by priority and due date, then limit
+  pendingTasks = pendingTasks
+    .sort((a, b) => {
+      // Sort by priority first (urgent > high > medium > low)
+      const priorityOrder = { urgent: 4, high: 3, medium: 2, low: 1 };
+      const priorityDiff = (priorityOrder[b.priority as keyof typeof priorityOrder] || 0) - 
+                           (priorityOrder[a.priority as keyof typeof priorityOrder] || 0);
+      if (priorityDiff !== 0) return priorityDiff;
+      
+      // Then by due date (earliest first)
+      if (a.dueDate && b.dueDate) {
+        return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
+      }
+      if (a.dueDate) return -1;
+      if (b.dueDate) return 1;
+      return 0;
+    })
+    .slice(0, maxTasks); // Limit to maxTasks
+  
+  const taskList = pendingTasks.map((task, idx) => {
+    const dueDateStr = task.dueDate ? new Date(task.dueDate).toISOString().split('T')[0] : 'No due date';
+    const taskId = String(task.id);
+    return `${idx + 1}. [ID: ${taskId}] "${task.title}" - Priority: ${task.priority}, Due: ${dueDateStr}`;
+  }).join('\n');
+  
+  if (pendingTasks.length === 0) {
+    return {
+      analysis: 'No pending tasks found to optimize.',
+      recommendations: [],
+      summary: '',
+    };
+  }
+
+  const prompt = `Analyze these ${pendingTasks.length} tasks and redistribute them to balance workload over the next ${days} days.
+
+TASKS:
+${taskList}
+
+You MUST respond with ONLY this JSON format (no other text):
+{
+  "recommendations": [
+    {
+      "taskId": "exact_id_from_list",
+      "taskTitle": "exact title",
+      "currentDueDate": "YYYY-MM-DD or null",
+      "suggestedDueDate": "YYYY-MM-DD",
+      "currentPriority": "low/medium/high/urgent",
+      "suggestedPriority": "low/medium/high/urgent",
+      "reason": "reason"
+    }
+  ]
+}
+
+CRITICAL RULES:
+- Find tasks on overloaded days (5+ tasks) and move some to lighter days (1-2 tasks)
+- Schedule tasks with "No due date" to balance workload
+- Prioritize overdue tasks (negative days)
+- Suggested dates must be YYYY-MM-DD format within next ${days} days
+- Include at least 5-10 recommendations if there are imbalances
+- Return ONLY the JSON, no markdown, no code blocks, no explanations`;
+
+  const aiResponse = await chatWithOrganizer(userId, prompt, { 
+    temperature: 0.2, // Lower temperature for more structured output
+    maxTokens: 2000, // Reduced tokens to prevent timeout
+    ...(options?.provider && { provider: options.provider })
+  });
+
+  // Try to extract JSON from the response
+  let recommendations: TaskRecommendation[] = [];
+  let analysis = aiResponse;
+  let summary = '';
+
+  try {
+    console.log('AI Response length:', aiResponse.length);
+    console.log('AI Response preview:', aiResponse.substring(0, 500));
+    
+    // Try to find JSON in the response (more flexible patterns)
+    let jsonString = '';
+    let jsonMatch = null;
+    
+    // Pattern 1: Look for JSON wrapped in code blocks
+    const codeBlockPattern = /```(?:json)?\s*(\{[\s\S]*?\})\s*```/;
+    const codeBlockMatch = aiResponse.match(codeBlockPattern);
+    if (codeBlockMatch && codeBlockMatch[1]) {
+      jsonString = codeBlockMatch[1];
+      jsonMatch = codeBlockMatch[0];
+    }
+    
+    // Pattern 2: Look for JSON object starting with { and containing "recommendations"
+    if (!jsonString) {
+      const jsonObjectPattern = /\{[\s\S]*?"recommendations"[\s\S]*?\}/;
+      const jsonObjectMatch = aiResponse.match(jsonObjectPattern);
+      if (jsonObjectMatch) {
+        jsonString = jsonObjectMatch[0];
+        jsonMatch = jsonObjectMatch[0];
+      }
+    }
+    
+    // Pattern 3: Try to find any JSON object
+    if (!jsonString) {
+      const anyJsonPattern = /\{[\s\S]*\}/;
+      const anyJsonMatch = aiResponse.match(anyJsonPattern);
+      if (anyJsonMatch) {
+        jsonString = anyJsonMatch[0];
+        jsonMatch = anyJsonMatch[0];
+      }
+    }
+
+    if (jsonString) {
+      // Clean up the JSON string
+      jsonString = jsonString.trim();
+      // Remove any markdown code block markers
+      jsonString = jsonString.replace(/^```json\s*/i, '').replace(/^```\s*/, '').replace(/\s*```$/, '');
+      
+      console.log('Extracted JSON string length:', jsonString.length);
+      console.log('Extracted JSON preview:', jsonString.substring(0, 300));
+
+      const jsonData = JSON.parse(jsonString);
+      if (jsonData.recommendations && Array.isArray(jsonData.recommendations)) {
+        console.log(`Found ${jsonData.recommendations.length} recommendations in JSON`);
+        
+        // Map recommendations and validate task IDs exist
+        const validTaskIds = new Set(pendingTasks.map(t => String(t.id)));
+        console.log(`Valid task IDs: ${Array.from(validTaskIds).slice(0, 5).join(', ')}...`);
+
+        recommendations = jsonData.recommendations
+          .filter((rec: any) => {
+            const taskId = String(rec.taskId || '');
+            const isValid = validTaskIds.has(taskId);
+            if (!isValid) {
+              console.warn(`Invalid task ID in recommendation: ${taskId}. Valid IDs: ${Array.from(validTaskIds).slice(0, 3).join(', ')}...`);
+            }
+            return isValid;
+          })
+          .map((rec: any) => {
+            // Find the original task to get current values
+            const originalTask = pendingTasks.find(t => String(t.id) === String(rec.taskId));
+
+            if (!originalTask) {
+              console.warn(`Original task not found for ID: ${rec.taskId}`);
+              return null;
+            }
+
+            // Parse dates
+            let currentDueDate: Date | null = null;
+            let suggestedDueDate: Date | null = null;
+            
+            if (originalTask.dueDate) {
+              currentDueDate = originalTask.dueDate instanceof Date ? originalTask.dueDate : new Date(originalTask.dueDate);
+            }
+            
+            if (rec.suggestedDueDate) {
+              try {
+                suggestedDueDate = new Date(rec.suggestedDueDate);
+                if (isNaN(suggestedDueDate.getTime())) {
+                  console.warn(`Invalid suggested date: ${rec.suggestedDueDate}`);
+                  suggestedDueDate = null;
+                }
+              } catch (e) {
+                console.warn(`Error parsing suggested date: ${rec.suggestedDueDate}`, e);
+                suggestedDueDate = null;
+              }
+            }
+            
+            // Normalize dates for comparison (YYYY-MM-DD)
+            const currentDateStr = currentDueDate ? currentDueDate.toISOString().split('T')[0] : null;
+            const suggestedDateStr = suggestedDueDate ? suggestedDueDate.toISOString().split('T')[0] : null;
+            const hasDateChange = currentDateStr !== suggestedDateStr;
+            
+            const hasPriorityChange = rec.suggestedPriority && 
+                                     String(rec.currentPriority || originalTask.priority).toLowerCase() !== 
+                                     String(rec.suggestedPriority).toLowerCase();
+            
+            // Include if there's any change
+            if (!hasDateChange && !hasPriorityChange) {
+              console.log(`Skipping task ${rec.taskId} - no changes detected`);
+              return null;
+            }
+
+            return {
+              taskId: String(rec.taskId || originalTask.id),
+              taskTitle: rec.taskTitle || originalTask.title || '',
+              currentDueDate: currentDueDate,
+              suggestedDueDate: suggestedDueDate,
+              currentPriority: String(rec.currentPriority || originalTask.priority || 'medium'),
+              suggestedPriority: rec.suggestedPriority ? String(rec.suggestedPriority) : undefined,
+              reason: rec.reason || 'Balance workload distribution',
+            };
+          })
+          .filter((rec: any) => rec !== null); // Remove null entries
+        
+        console.log(`After filtering: ${recommendations.length} valid recommendations`);
+
+        // Extract analysis and summary (text before and after JSON)
+        if (jsonMatch && jsonMatch[0]) {
+          const parts = aiResponse.split(jsonMatch[0]);
+          analysis = parts[0]?.trim() || '';
+          summary = parts[1]?.trim() || '';
+        }
+      } else {
+        console.warn('JSON data does not contain recommendations array');
+      }
+    } else {
+      console.warn('No JSON found in AI response');
+      console.warn('Response:', aiResponse.substring(0, 500));
+    }
+  } catch (parseError) {
+    console.error('Error parsing AI response for recommendations:', parseError);
+    console.error('AI Response that failed to parse:', aiResponse.substring(0, 500));
+    // If parsing fails, return the full response as analysis
+    analysis = aiResponse;
+    recommendations = [];
+  }
+
+  console.log(`Optimization complete: ${recommendations.length} recommendations found`);
+
+  return {
+    analysis,
+    recommendations,
+    summary,
+  };
+}
+
+/**
+ * Quick task breakdown (Low Impact)
+ * Breaks down a task into smaller subtasks
+ */
+export async function breakdownTask(userId: string, taskDescription: string, options?: { provider?: AIProvider }): Promise<string> {
+  const prompt = `Break down the following task into smaller, actionable subtasks. Make each subtask specific, measurable, and achievable:
+
+Task: "${taskDescription}"
+
+Provide:
+1. A list of 3-7 subtasks that logically break down the main task
+2. A suggested order for completing these subtasks
+3. Estimated effort/complexity for each subtask (low/medium/high)
+4. Any dependencies between subtasks
+
+Format the response as a clear, numbered list that I can use to create individual tasks.`;
+
+  return chatWithOrganizer(userId, prompt, { 
+    temperature: 0.6,
+    ...(options?.provider && { provider: options.provider })
+  });
+}
+
 // ---------- ENHANCED FUNCTIONS USING EXISTING LANGCHAIN CAPABILITIES ----------
 
 /**
@@ -539,6 +819,8 @@ export default {
   getDailyTaskPlan,
   analyzeProductivity,
   getMotivation,
+  optimizeWorkload,
+  breakdownTask,
   
   // Enhanced functions using existing LangChain capabilities
   generateTaskSuggestionsForGoal,
