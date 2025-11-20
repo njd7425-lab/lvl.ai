@@ -28,6 +28,7 @@ interface NavigationItem {
 const navigation: NavigationItem[] = [
   { name: 'Dashboard', href: '/home', icon: HomeIcon },
   { name: 'Tasks', href: '/tasks', icon: ClipboardDocumentListIcon },
+  { name: 'Workload', href: '/workload', icon: ChartBarIcon },
   { name: 'Friends', href: '/friends', icon: UserGroupIcon },
   { name: 'Analytics', href: '/analytics', icon: ChartBarIcon },
   { name: 'Settings', href: '/settings', icon: Cog6ToothIcon },
