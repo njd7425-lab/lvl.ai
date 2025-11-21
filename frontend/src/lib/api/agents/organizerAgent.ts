@@ -247,6 +247,117 @@ export async function checkHealth(): Promise<HealthCheckResponse> {
   }
 }
 
+// ---------- NEW FEATURES ----------
+
+/**
+ * Task Recommendation
+ */
+export interface TaskRecommendation {
+  taskId: string;
+  taskTitle: string;
+  currentDueDate?: string | null;
+  suggestedDueDate?: string | null;
+  currentPriority: string;
+  suggestedPriority?: string;
+  reason: string;
+}
+
+/**
+ * Workload Optimization Response
+ */
+export interface WorkloadOptimizationResponse {
+  success: boolean;
+  analysis: string;
+  recommendations: TaskRecommendation[];
+  summary: string;
+  metadata: {
+    userId: string;
+    timestamp: string;
+    type: 'workload_optimization';
+    days: number;
+  };
+}
+
+/**
+ * Apply Workload Optimization Response
+ */
+export interface ApplyWorkloadOptimizationResponse {
+  success: boolean;
+  updatedTasks?: string[];
+  details?: string[];
+  message: string;
+}
+
+/**
+ * Task Breakdown Response
+ */
+export interface TaskBreakdownResponse {
+  success: boolean;
+  breakdown: string;
+  metadata: {
+    userId: string;
+    timestamp: string;
+    type: 'task_breakdown';
+  };
+}
+
+/**
+ * Optimize workload distribution (High Impact)
+ * @param days Number of days to optimize for (default: 7)
+ * @param maxTasks Maximum number of tasks to analyze (default: 15)
+ */
+export async function optimizeWorkload(days: number = 7, maxTasks: number = 15): Promise<WorkloadOptimizationResponse> {
+  try {
+    const response = await apiClient.client.get<WorkloadOptimizationResponse>(
+      `/organizer/workload-optimization?days=${days}&maxTasks=${maxTasks}`,
+      {
+        timeout: 35000, // 35 second timeout
+      }
+    );
+    return response.data;
+  } catch (error: any) {
+    console.error('Error optimizing workload:', error);
+    if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+      throw new Error('Request timed out. Try reducing the number of days or tasks.');
+    }
+    throw new Error(error.response?.data?.message || 'Failed to optimize workload');
+  }
+}
+
+/**
+ * Apply workload optimization changes
+ * @param recommendations Array of task recommendations to apply
+ */
+export async function applyWorkloadOptimization(recommendations: TaskRecommendation[]): Promise<ApplyWorkloadOptimizationResponse> {
+  try {
+    const response = await apiClient.client.post<ApplyWorkloadOptimizationResponse>(
+      '/organizer/apply-workload-optimization',
+      { recommendations }
+    );
+    return response.data;
+  } catch (error: any) {
+    console.error('Error applying workload optimization:', error);
+    throw new Error(error.response?.data?.message || 'Failed to apply workload optimization');
+  }
+}
+
+/**
+ * Break down a task into subtasks (Low Impact)
+ * @param taskDescription The task to break down
+ */
+export async function breakdownTask(taskDescription: string): Promise<TaskBreakdownResponse> {
+  try {
+    const response = await apiClient.client.post<TaskBreakdownResponse>(
+      '/organizer/breakdown-task',
+      { taskDescription }
+    );
+    return response.data;
+  } catch (error: any) {
+    console.error('Error breaking down task:', error);
+    throw new Error(error.response?.data?.message || 'Failed to break down task');
+  }
+}
+
 // ---------- CONVENIENCE FUNCTIONS ----------
 
 /**
@@ -325,6 +436,9 @@ export const organizerAgentAPI = {
   getDailyTaskPlan,
   getProductivityAnalysis,
   getMotivation,
+  optimizeWorkload,
+  applyWorkloadOptimization,
+  breakdownTask,
   getUserContext,
   testAIProvider,
   checkHealth,
