@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import organizerAgent from '../ai/agents/organizerAgent';
 import authenticate from '../middleware/auth';
 import { body, validationResult } from 'express-validator';
+import Task from '@/models/Task';
 
 const router = Router();
 
@@ -325,6 +326,217 @@ router.get(
 );
 
 /**
+ * @route   GET /api/organizer/workload-optimization
+ * @desc    Optimize workload distribution
+ * @access  Private
+ */
+router.get(
+  '/workload-optimization',
+  authenticate,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const userId = req.user?._id;
+      const days = req.query['days'] ? parseInt(req.query['days'] as string) : 7;
+      const maxTasks = req.query['maxTasks'] ? parseInt(req.query['maxTasks'] as string) : 15;
+
+      if (!userId) {
+        return res.status(401).json({ 
+          success: false, 
+          message: 'User not authenticated' 
+        });
+      }
+
+      // Set timeout for the optimization (30 seconds)
+      const optimizationPromise = organizerAgent.optimizeWorkload(userId, { days, maxTasks });
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Optimization timeout: Process took too long')), 30000)
+      );
+
+      const optimization = await Promise.race([optimizationPromise, timeoutPromise]) as Awaited<ReturnType<typeof organizerAgent.optimizeWorkload>>;
+
+      return res.json({
+        success: true,
+        analysis: optimization.analysis,
+        recommendations: optimization.recommendations,
+        summary: optimization.summary,
+        metadata: {
+          userId: userId,
+          timestamp: new Date(),
+          type: 'workload_optimization',
+          days: days,
+          maxTasks: maxTasks,
+        },
+      });
+    } catch (error) {
+      console.error('Error optimizing workload:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const errorDetails = error instanceof Error && error.stack ? error.stack : undefined;
+      
+      // Log full error for debugging
+      console.error('Full error details:', {
+        message: errorMessage,
+        stack: errorDetails,
+        userId: req.user?._id,
+        days: req.query['days'] ? parseInt(req.query['days'] as string) : 7,
+      });
+      
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to optimize workload',
+        error: errorMessage,
+        ...(process.env['NODE_ENV'] === 'development' && { details: errorDetails }),
+      });
+    }
+  }
+);
+
+/**
+ * @route   POST /api/organizer/apply-workload-optimization
+ * @desc    Apply workload optimization changes to tasks
+ * @access  Private
+ */
+router.post(
+  '/apply-workload-optimization',
+  authenticate,
+  [
+    body('recommendations').isArray().withMessage('Recommendations must be an array'),
+    body('recommendations.*.taskId').notEmpty().withMessage('Task ID is required'),
+  ],
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ 
+          success: false, 
+          errors: errors.array() 
+        });
+      }
+
+      const userId = req.user?._id;
+      const { recommendations } = req.body;
+
+      if (!userId) {
+        return res.status(401).json({ 
+          success: false, 
+          message: 'User not authenticated' 
+        });
+      }
+
+      const updatedTasks = [];
+      const errors_list: string[] = [];
+
+      // Apply each recommendation
+      for (const rec of recommendations) {
+        try {
+          const task = await Task.findOne({
+            _id: rec.taskId,
+            userId: userId
+          });
+
+          if (!task) {
+            errors_list.push(`Task ${rec.taskId} not found`);
+            continue;
+          }
+
+          const updateData: any = {};
+          
+          if (rec.suggestedDueDate) {
+            updateData.dueDate = new Date(rec.suggestedDueDate);
+          }
+          
+          if (rec.suggestedPriority) {
+            updateData.priority = rec.suggestedPriority;
+          }
+
+          if (Object.keys(updateData).length > 0) {
+            const updatedTask = await Task.findByIdAndUpdate(
+              rec.taskId,
+              updateData,
+              { new: true }
+            );
+            updatedTasks.push(updatedTask);
+          }
+        } catch (taskError) {
+          errors_list.push(`Failed to update task ${rec.taskId}: ${taskError instanceof Error ? taskError.message : 'Unknown error'}`);
+        }
+      }
+
+      return res.json({
+        success: true,
+        updated: updatedTasks.length,
+        errors: errors_list.length > 0 ? errors_list : undefined,
+        message: `Successfully updated ${updatedTasks.length} task(s)`,
+      });
+    } catch (error) {
+      console.error('Error applying workload optimization:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to apply workload optimization',
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  }
+);
+
+/**
+ * @route   POST /api/organizer/breakdown-task
+ * @desc    Break down a task into subtasks
+ * @access  Private
+ */
+router.post(
+  '/breakdown-task',
+  authenticate,
+  [
+    body('taskDescription')
+      .trim()
+      .notEmpty()
+      .withMessage('Task description is required')
+      .isLength({ max: 500 })
+      .withMessage('Task description cannot exceed 500 characters'),
+  ],
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ 
+          success: false, 
+          errors: errors.array() 
+        });
+      }
+
+      const userId = req.user?._id;
+      const { taskDescription } = req.body;
+
+      if (!userId) {
+        return res.status(401).json({ 
+          success: false, 
+          message: 'User not authenticated' 
+        });
+      }
+
+      const breakdown = await organizerAgent.breakdownTask(userId, taskDescription);
+
+      return res.json({
+        success: true,
+        breakdown,
+        metadata: {
+          userId,
+          timestamp: new Date(),
+          type: 'task_breakdown',
+        },
+      });
+    } catch (error) {
+      console.error('Error breaking down task:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to break down task',
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  }
+);
+
+/**
  * @route   GET /api/organizer/health
  * @desc    Check organizer agent health
  * @access  Public
@@ -345,6 +557,8 @@ router.get('/health', (_req: Request, res: Response) => {
       'daily-plan',
       'productivity-analysis',
       'motivation',
+      'workload-optimization',
+      'task-breakdown',
       'provider-test',
       'enhanced-langchain-functions',
     ],
