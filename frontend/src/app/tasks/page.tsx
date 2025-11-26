@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/Input';
 import CreateTaskModal from '@/components/tasks/CreateTaskModal';
 import EditTaskModal from '@/components/tasks/EditTaskModal';
 import { TaskList } from '@/components/tasks/TaskList';
+import { TaskBreakdown } from '@/components/tasks/TaskBreakdown';
 import ClientGuard from '@/components/ClientGuard';
 import { TaskPriority, TaskStatus, Task, ITask } from '@/lib/types';
 import { TaskAPI } from '@/lib/api';
@@ -247,13 +248,16 @@ export default function TasksPage() {
             <h1 className="text-3xl font-bold text-foreground">Tasks</h1>
             <p className="text-muted-foreground">Manage and track your daily tasks</p>
           </div>
-          <Button 
-            className="flex items-center gap-2"
-            onClick={() => handleAddTask()}
-          >
-            <PlusIcon className="h-4 w-4" />
-            Add Task
-          </Button>
+          <div className="flex items-center gap-2">
+            <TaskBreakdown />
+            <Button 
+              className="flex items-center gap-2"
+              onClick={() => handleAddTask()}
+            >
+              <PlusIcon className="h-4 w-4" />
+              Add Task
+            </Button>
+          </div>
         </div>
 
         {/* Error Message */}
