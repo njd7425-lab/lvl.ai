@@ -4,6 +4,10 @@
 
 Added an AI-powered workload optimization feature that analyzes user tasks and provides intelligent recommendations to balance workload distribution across days. The feature identifies overloaded days, redistributes tasks to lighter days, and suggests priority adjustments.
 
+## Demo
+[![Watch the video](https://i.imgur.com/22TPeoA.mp4)](https://i.imgur.com/22TPeoA.mp4)
+
+
 ## New Feature: Workload Optimization
 
 The workload optimization feature helps users:
