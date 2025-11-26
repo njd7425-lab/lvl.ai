@@ -10,6 +10,8 @@ LVL.AI is a full-stack productivity platform that transforms task management int
 
 - **🎮 Gamified Experience**: XP-based leveling system with achievements and streaks
 - **🤖 AI-Powered Insights**: Smart task suggestions and productivity analysis using DeepSeek AI
+- **⚡ Workload Optimization**: AI-powered task redistribution to balance workload across days
+- **📋 Task Breakdown**: Intelligent task decomposition into smaller, actionable subtasks
 - **👥 Social Features**: Friend connections, shared achievements, and collaborative challenges
 - **📊 Advanced Analytics**: Comprehensive progress tracking and productivity metrics
 - **🏨 Hotel Management**: Complete hotel operations dashboard with booking and billing systems
@@ -181,6 +183,9 @@ lvl.ai/
 | GET | `/api/organizer/daily-plan` | Get daily task plan | Private |
 | GET | `/api/organizer/productivity-analysis` | Analyze productivity patterns | Private |
 | GET | `/api/organizer/motivation` | Get motivational messages | Private |
+| GET | `/api/organizer/workload-optimization` | Optimize workload distribution | Private |
+| POST | `/api/organizer/apply-workload-optimization` | Apply workload optimization changes | Private |
+| POST | `/api/organizer/breakdown-task` | Break down task into subtasks | Private |
 
 ### Social Features Endpoints
 
@@ -193,6 +198,28 @@ lvl.ai/
 
 ## 🤖 AI Features
 
+### Workload Optimization
+
+The workload optimization feature helps users balance their workload by:
+- **Analyzing Task Distribution**: Identifies days with too many tasks (5+) and days with few tasks (1-2)
+- **Intelligent Redistribution**: Suggests moving tasks from overloaded days to lighter days
+- **Overdue Task Handling**: Automatically prioritizes tasks that are past their due date
+- **Unscheduled Task Management**: Schedules tasks with no due date based on workload balance
+- **Interactive Review**: Before/after comparison table showing proposed changes
+- **Selective Application**: Users can review and selectively apply recommendations
+
+**Usage**: Navigate to `/workload` page, configure optimization settings (3-14 days), and click "Optimize Workload" to get AI-powered recommendations.
+
+### Task Breakdown
+
+The task breakdown feature uses AI to decompose large tasks into smaller, actionable subtasks:
+- **Intelligent Decomposition**: Breaks down complex tasks into 3-7 manageable subtasks
+- **Suggested Order**: Provides recommended order for completing subtasks
+- **Effort Estimation**: Suggests complexity levels for each subtask
+- **Dependency Analysis**: Identifies dependencies between subtasks
+
+**Usage**: Click "Break Down Task" button on the tasks page, enter task description, and get AI-generated subtasks.
+
 ### Organizer Agent
 
 The platform includes a sophisticated RAG (Retrieval-Augmented Generation) agent that provides:
@@ -202,6 +229,10 @@ The platform includes a sophisticated RAG (Retrieval-Augmented Generation) agent
 - **Productivity Analysis**: Insights into user patterns and recommendations
 - **Daily Planning**: Automated daily task planning based on user preferences
 - **Motivational Support**: Personalized encouragement based on progress
+- **Workload Optimization**: Intelligent task redistribution to balance workload across days
+- **Task Breakdown**: AI-powered task decomposition into smaller, actionable subtasks
+- **Workload Optimization**: Intelligent task redistribution to balance workload across days
+- **Task Breakdown**: AI-powered task decomposition into smaller, actionable subtasks
 
 ### AI Providers
 
@@ -381,11 +412,13 @@ frontend/src/
 │   ├── page.tsx         # Landing page
 │   ├── home/            # Dashboard
 │   ├── tasks/           # Task management
+│   ├── workload/        # Workload optimization
 │   ├── login/           # Authentication
 │   └── register/
 ├── components/          # React components
 │   ├── auth/            # Authentication components
 │   ├── tasks/            # Task management components
+│   │   └── TaskBreakdown.tsx  # Task breakdown component
 │   ├── ui/               # Reusable UI components
 │   ├── layout/           # Layout components
 │   └── charts/           # Data visualization
@@ -438,6 +471,10 @@ For support and questions:
 
 ## 🗺️ Roadmap
 
+### Recent Features
+- **Workload Optimization**: AI-powered task redistribution to balance workload across days
+- **Task Breakdown**: Intelligent task decomposition into smaller, actionable subtasks
+
 ### Planned Features
 - **Mobile App**: React Native mobile application
 - **Advanced AI**: Vector database integration for semantic search
@@ -446,6 +483,9 @@ For support and questions:
 - **Advanced Analytics**: Machine learning insights
 - **Custom Themes**: User-customizable UI themes
 - **Offline Support**: Progressive Web App capabilities
+- **Batch Processing**: Process tasks in batches for users with many tasks
+- **Optimization History**: Track and show optimization history
+- **Smart Scheduling**: Consider task duration/effort estimates
 
 ---
 
